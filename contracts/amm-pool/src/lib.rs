@@ -4,6 +4,8 @@
 // crate's reachable API: as a private module their `pub` items tripped
 // `dead_code` under `clippy -D warnings`.
 pub mod math;
+#[cfg(test)]
+mod zero_deposit_tests;
 
 use math::{amount_out, flash_k_ok, liquidity_amounts_first_deposit, quote};
 use soroban_sdk::token::{TokenClient, TokenInterface};
@@ -256,6 +258,21 @@ impl AmmPool {
         };
 
         assert!(amount_a >= min_a && amount_b >= min_b, "slippage add");
+
+        // `quote` floors, so on a lopsided pool a positive desired amount can
+        // still quote to 0 on one side. Without this guard the pool accepts the
+        // deposit, takes the non-zero side, and only then trips `liq` -- after
+        // both transfers have already been recorded. Reject here instead, so a
+        // deposit is either applied in full or not at all, and say which side
+        // and which amount was too small.
+        assert!(
+            amount_a > 0,
+            "deposit amount for token A rounds to zero at current reserves"
+        );
+        assert!(
+            amount_b > 0,
+            "deposit amount for token B rounds to zero at current reserves"
+        );
 
         TokenClient::new(&env, &ta).transfer(&user, &pool, &amount_a);
         TokenClient::new(&env, &tb).transfer(&user, &pool, &amount_b);
